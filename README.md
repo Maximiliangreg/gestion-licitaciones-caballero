@@ -1,58 +1,57 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Sistema de Gestión de Licitaciones (MVP) - Consultoría y Soluciones Caballero
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Este proyecto es un Producto Mínimo Viable (MVP) diseñado para la gestión y seguimiento de licitaciones comerciales, centralizando información de oportunidades de negocio, control de presupuestos y catálogo de productos ofertados. Desarrollado como prueba técnica con un enfoque arquitectónico escalable y de alta trazabilidad.
 
-## About Laravel
+## 🛠️ Stack Tecnológico y Entorno
+* **Backend:** Laravel 11 (PHP 8.2+)
+* **Base de Datos:** PostgreSQL 17 (Alpine)
+* **Contenerización:** Docker & Docker Compose (Laravel Sail / Entorno Aislado)
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+---
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## 🗄️ Arquitectura de Base de Datos y Modelos (Laravel 11)
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+El modelo de datos ha sido diseñado de forma híbrida para satisfacer estrictamente los requerimientos obligatorios del MVP, incorporando mejoras críticas de auditoría y control operativo (Sección 3.3 y 2).
 
-## Learning Laravel
+### Entidades y Relaciones Eloquent
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+1. **User (`users`)**
+   * Gestiona a los usuarios internos del sistema.
+   * **Roles nativos (Sección 3.4):** `admin` y `user` mediante atributos `#[Fillable]` de Laravel 11.
+   * **Relaciones:** Tiene muchas licitaciones (`hasMany(Tender)`) y clientes creados.
 
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+2. **Client (`clients`)**
+   * Almacena las entidades externas u oportunidades de mercado.
+   * **Relaciones:** Pertenece a un creador (`belongsTo(User)`) y posee múltiples procesos (`hasMany(Tender)`).
 
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
+3. **Product (`products`)**
+   * Catálogo maestro de bienes disponibles para ofertas comerciales.
+   * **Mejora operativa:** Inclusión de control de inventario (`stock`).
+   * **Relaciones:** Relación de muchos a muchos con licitaciones (`belongsToMany(Tender)`).
 
-## Agentic Development
+4. **Tender (`tenders`)**
+   * Control central de las propuestas comerciales y sus estados operativos (`activa`, `por_cobrar`, `perdida`, `finalizada`).
+   * **Reglas de Negocio:** Validación de presupuesto máximo (`max_budget > 0`) y cálculo acumulado (`total_amount`).
+   * **Mejora operativa:** Campo `delivery_deadline` para control visual de alertas fatales antes de que expire el acto.
 
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
+5. **TenderProduct (`tender_products`) - Tabla Pivote**
+   * Registra los productos indexados en cada propuesta comercial con su precio histórico de venta.
+   * **Restricción Crítica (RN-09):** Índice compuesto `UNIQUE(['tender_id', 'product_id'])` para mitigar la duplicidad de productos en un mismo acto.
+
+### 📑 Auditoría Estricta (Punto 5)
+Para garantizar la trazabilidad de modificaciones exigida, todas las tablas contienen las claves foráneas estructurales:
+* `created_by` / `added_by`: Identifica al usuario que originó el registro.
+* `updated_by`: Identifica de forma precisa a la última persona que alteró el registro.
+
+---
+
+## 🚀 Comandos de Inicialización y Despliegue en Docker
+
+Para levantar el entorno local de base de datos y sincronizar la estructura relacional, ejecuta los siguientes comandos desde tu terminal de **Git Bash**:
 
 ```bash
-composer require laravel/boost --dev
+# 1. Ejecutar las migraciones desde cero limpiando residuos previos
+docker exec -it laravel_test php artisan migrate:fresh
 
-php artisan boost:install
-```
-
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
-
-## Contributing
-
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
-
-## Code of Conduct
-
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
-
-## Security Vulnerabilities
-
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
-
-## License
-
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+# 2. Sembrar los datos obligatorios e iniciales del sistema
+docker exec -it laravel_test php artisan db:seed
