@@ -5,77 +5,59 @@ namespace App\Http\Controllers;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Validation\ValidationException;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Validator;
 
 class AuthController extends Controller
 {
     public function login(Request $request): JsonResponse
     {
-        try {
-            $credentials = $this->validateLogin($request);
+        $credentials = $request->only(['email', 'password']);
 
-            if (!Auth::attempt($credentials)) {
-                throw ValidationException::withMessages([
-                    'email' => ['Credenciales inválidas.'],
-                ]);
-            }
+        $validator = Validator::make($credentials, [
+            'email' => ['required', 'string', 'email'],
+            'password' => ['required', 'string'],
+        ]);
 
-            /** @var User $user */
-            $user = $request->user();
-
-            $token = $user->createToken('spa-access');
-
-            return response()->json([
-                'success' => true,
-                'data' => [
-                    'token' => $token->plainTextToken,
-                    'user' => [
-                        'name' => $user->name,
-                        'role' => $user->role,
-                    ],
-                ],
-            ]);
-        } catch (ValidationException $e) {
+        if ($validator->fails()) {
             return response()->json([
                 'success' => false,
-                'message' => $e->errors(),
+                'message' => $validator->errors()->first(),
             ], 422);
-        } catch (\Throwable $e) {
+        }
+
+        $user = User::where('email', $credentials['email'])->first();
+
+        if (!$user || !Hash::check($credentials['password'], $user->password)) {
             return response()->json([
                 'success' => false,
-                'message' => 'Error al iniciar sesión.',
-            ], 500);
+                'message' => 'Credenciales inválidas.',
+            ], 401);
         }
+
+        $token = $user->createToken('spa-access');
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'token' => $token->plainTextToken,
+                'name' => $user->name,
+                'role' => $user->role,
+            ],
+        ]);
     }
 
     public function logout(Request $request): JsonResponse
     {
-        try {
-            /** @var User|null $user */
-            $user = $request->user();
+        $user = $request->user();
 
-            if ($user) {
-                $user->tokens()->delete();
-            }
-
-            return response()->json([
-                'success' => true,
-                'data' => [],
-            ]);
-        } catch (\Throwable $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error al cerrar sesión.',
-            ], 500);
+        if ($user && $user->currentAccessToken()) {
+            $user->currentAccessToken()->delete();
         }
-    }
 
-    private function validateLogin(Request $request): array
-    {
-        return $request->validate([
-            'email' => ['required', 'email', 'string'],
-            'password' => ['required', 'string'],
+        return response()->json([
+            'success' => true,
+            'data' => [],
         ]);
     }
 }

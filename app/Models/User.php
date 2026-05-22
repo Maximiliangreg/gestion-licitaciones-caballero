@@ -9,7 +9,8 @@ use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
-use Laravel\Sanctum\HasApiTokens; // 1. IMPORTAMOS EL TRAIT
+use Laravel\Sanctum\HasApiTokens;
+
 
 // INYECCIÓN: Agregamos 'role', 'created_by' y 'updated_by' 
 #[Fillable(['name', 'email', 'password', 'role', 'created_by', 'updated_by'])]
