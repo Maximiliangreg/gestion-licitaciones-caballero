@@ -1,6 +1,7 @@
 const API_PATHS = {
     login: '/api/auth/login',
     products: '/api/products',
+    tenders: '/api/tenders',
 };
 
 class SessionState {
@@ -165,6 +166,69 @@ class ApiService {
 
         return true;
     }
+
+    async getTenders() {
+        const response = await fetch(API_PATHS.tenders, {
+            method: 'GET',
+            headers: this.getAuthHeaders(),
+        });
+
+        const payload = await response.json().catch(() => null);
+
+        if (!response.ok || !payload || payload.success === false) {
+            throw new Error(payload?.message || 'Error al obtener licitaciones.');
+        }
+
+        return payload.data || [];
+    }
+
+    async getTender(id) {
+        const response = await fetch(`${API_PATHS.tenders}/${id}`, {
+            method: 'GET',
+            headers: this.getAuthHeaders(),
+        });
+
+        const payload = await response.json().catch(() => null);
+
+        if (!response.ok || !payload || payload.success === false) {
+            throw new Error(payload?.message || 'Error al obtener la licitación.');
+        }
+
+        return payload.data;
+    }
+
+    async attachProductToTender(tenderId, productData) {
+        const response = await fetch(`${API_PATHS.tenders}/${tenderId}/attach-product`, {
+            method: 'POST',
+            headers: this.getAuthHeaders(),
+            body: JSON.stringify(productData),
+        });
+
+        const payload = await response.json().catch(() => null);
+
+        if (!response.ok || !payload || payload.success === false) {
+            const errors = payload?.message || 'Error al agregar producto a licitación.';
+            throw new Error(typeof errors === 'object' ? JSON.stringify(errors) : errors);
+        }
+
+        return payload.data;
+    }
+
+    async detachProductFromTender(tenderId, productId) {
+        const response = await fetch(`${API_PATHS.tenders}/${tenderId}/detach-product`, {
+            method: 'POST',
+            headers: this.getAuthHeaders(),
+            body: JSON.stringify({ product_id: productId }),
+        });
+
+        const payload = await response.json().catch(() => null);
+
+        if (!response.ok || !payload || payload.success === false) {
+            throw new Error(payload?.message || 'Error al remover producto de licitación.');
+        }
+
+        return payload.data;
+    }
 }
 
 class BaseView {
@@ -268,6 +332,7 @@ class MenuView extends BaseView {
                 ${isAuthenticated ? `
                     <nav class="flex flex-wrap gap-2">
                         <button data-view="dashboard" class="menu-action rounded-md border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium text-[#1b1b18] dark:text-white hover:bg-gray-100 dark:hover:bg-gray-800 transition">Inicio</button>
+                        <button data-view="tenders" class="menu-action rounded-md border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium text-[#1b1b18] dark:text-white hover:bg-gray-100 dark:hover:bg-gray-800 transition">Licitaciones</button>
                         <button data-view="products" class="menu-action rounded-md border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium text-[#1b1b18] dark:text-white hover:bg-gray-100 dark:hover:bg-gray-800 transition">Productos</button>
                         <button data-view="profile" class="menu-action rounded-md border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium text-[#1b1b18] dark:text-white hover:bg-gray-100 dark:hover:bg-gray-800 transition">Perfil</button>
                         <button data-view="settings" class="menu-action rounded-md border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium text-[#1b1b18] dark:text-white hover:bg-gray-100 dark:hover:bg-gray-800 transition">Ajustes</button>
@@ -636,6 +701,329 @@ class ProductView extends BaseView {
     }
 }
 
+class TenderView extends BaseView {
+    constructor(root, state, api, onNavigate) {
+        super(root, state);
+        this.api = api;
+        this.onNavigate = onNavigate;
+        this.tenders = [];
+        this.selectedTender = null;
+        this.products = [];
+        this.isLoading = false;
+        this.showDetailView = false;
+        this.addProductError = '';
+    }
+
+    async render() {
+        try {
+            this.isLoading = true;
+            this.tenders = await this.api.getTenders();
+        } catch (error) {
+            console.error('Error al cargar licitaciones:', error);
+            this.tenders = [];
+        } finally {
+            this.isLoading = false;
+        }
+
+        this.root.innerHTML = `
+            <section class="max-w-6xl mx-auto bg-white dark:bg-[#111111] rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-8">
+                <div id="tender-list-view" ${this.showDetailView ? 'class="hidden"' : ''}>
+                    ${this.renderListView()}
+                </div>
+                <div id="tender-detail-view" ${this.showDetailView ? '' : 'class="hidden"'}>
+                    ${this.renderDetailView()}
+                </div>
+            </section>
+        `;
+
+        this.bindEvents();
+    }
+
+    renderListView() {
+        return `
+            <div class="mb-8">
+                <h2 class="text-2xl font-semibold mb-2 text-[#1b1b18] dark:text-white">Tablero de Licitaciones</h2>
+                <p class="text-sm text-gray-600 dark:text-gray-300">Gestiona todas tus licitaciones y cotizaciones.</p>
+            </div>
+
+            ${this.isLoading ? `
+                <p class="text-center text-gray-600 dark:text-gray-400">Cargando licitaciones...</p>
+            ` : this.tenders.length === 0 ? `
+                <p class="text-center text-gray-600 dark:text-gray-400">No hay licitaciones disponibles.</p>
+            ` : `
+                <div class="grid gap-4">
+                    ${this.tenders.map(tender => this.renderTenderCard(tender)).join('')}
+                </div>
+            `}
+        `;
+    }
+
+    renderTenderCard(tender) {
+        const statusColors = {
+            'activa': 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-100',
+            'pausada': 'bg-yellow-100 dark:bg-yellow-900 text-yellow-700 dark:text-yellow-100',
+            'finalizada': 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-100',
+            'cancelada': 'bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-100',
+        };
+
+        const statusClass = statusColors[tender.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300';
+
+        return `
+            <div class="rounded-xl border border-gray-200 dark:border-gray-700 p-6 bg-gray-50 dark:bg-[#141414] hover:shadow-md transition">
+                <div class="flex justify-between items-start mb-4">
+                    <div>
+                        <h3 class="text-lg font-semibold text-[#1b1b18] dark:text-white">${this.escapeHtml(tender.title)}</h3>
+                        <p class="text-sm text-gray-600 dark:text-gray-400 mt-1">Cliente: ${this.escapeHtml(tender.client?.name || 'N/A')}</p>
+                    </div>
+                    <span class="px-3 py-1 rounded-full text-xs font-medium ${statusClass}">${this.escapeHtml(tender.status)}</span>
+                </div>
+                <div class="grid grid-cols-3 gap-4 mb-4">
+                    <div>
+                        <p class="text-xs uppercase text-gray-500 dark:text-gray-400">Presupuesto Máx.</p>
+                        <p class="text-lg font-semibold text-[#1b1b18] dark:text-white">$${parseFloat(tender.max_budget).toFixed(2)}</p>
+                    </div>
+                    <div>
+                        <p class="text-xs uppercase text-gray-500 dark:text-gray-400">Total Cotizado</p>
+                        <p class="text-lg font-semibold text-[#1b1b18] dark:text-white">$${parseFloat(tender.total_amount).toFixed(2)}</p>
+                    </div>
+                    <div>
+                        <p class="text-xs uppercase text-gray-500 dark:text-gray-400">Productos</p>
+                        <p class="text-lg font-semibold text-[#1b1b18] dark:text-white">${tender.products?.length || 0}</p>
+                    </div>
+                </div>
+                <button data-tender-id="${tender.id}" class="btn-view-details px-4 py-2 bg-[#1b1b18] dark:bg-[#333333] text-white rounded-md text-sm font-medium hover:bg-[#343434] dark:hover:bg-[#444444] transition">Ver Detalles</button>
+            </div>
+        `;
+    }
+
+    renderDetailView() {
+        if (!this.selectedTender) {
+            return `<p class="text-center text-gray-600 dark:text-gray-400">Cargando detalles...</p>`;
+        }
+
+        const tender = this.selectedTender;
+
+        return `
+            <div class="mb-8">
+                <button id="btn-back-to-list" class="mb-4 px-4 py-2 text-sm font-medium text-[#1b1b18] dark:text-white border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 transition">← Volver a Licitaciones</button>
+                <h2 class="text-2xl font-semibold mb-2 text-[#1b1b18] dark:text-white">${this.escapeHtml(tender.title)}</h2>
+                <p class="text-sm text-gray-600 dark:text-gray-300">${this.escapeHtml(tender.description || 'Sin descripción')}</p>
+            </div>
+
+            <div class="grid gap-6 lg:grid-cols-3 mb-8">
+                <div class="rounded-xl border border-gray-200 dark:border-gray-700 p-6 bg-gray-50 dark:bg-[#141414]">
+                    <p class="text-xs uppercase text-gray-500 dark:text-gray-400 mb-2">Cliente Asignado</p>
+                    <p class="text-lg font-semibold text-[#1b1b18] dark:text-white">${this.escapeHtml(tender.client?.name || 'N/A')}</p>
+                    <p class="text-xs text-gray-600 dark:text-gray-400 mt-2">${this.escapeHtml(tender.client?.email || '')}</p>
+                    <p class="text-xs text-gray-600 dark:text-gray-400">${this.escapeHtml(tender.client?.phone || '')}</p>
+                </div>
+                <div class="rounded-xl border border-gray-200 dark:border-gray-700 p-6 bg-gray-50 dark:bg-[#141414]">
+                    <p class="text-xs uppercase text-gray-500 dark:text-gray-400 mb-2">Presupuesto Máximo</p>
+                    <p class="text-lg font-semibold text-[#1b1b18] dark:text-white">$${parseFloat(tender.max_budget).toFixed(2)}</p>
+                </div>
+                <div class="rounded-xl border border-gray-200 dark:border-gray-700 p-6 bg-gray-50 dark:bg-[#141414]">
+                    <p class="text-xs uppercase text-gray-500 dark:text-gray-400 mb-2">Total Cotizado</p>
+                    <p class="text-lg font-semibold text-[#F53003]">$${parseFloat(tender.total_amount).toFixed(2)}</p>
+                </div>
+            </div>
+
+            <div class="mb-8 rounded-xl border border-gray-200 dark:border-gray-700 p-6 bg-gray-50 dark:bg-[#141414]">
+                <h3 class="text-lg font-semibold mb-4 text-[#1b1b18] dark:text-white">Agregar Producto a Licitación</h3>
+                ${this.addProductError ? `<div class="mb-4 p-3 bg-red-100 dark:bg-red-900 border border-red-300 dark:border-red-700 text-red-700 dark:text-red-100 rounded text-sm">${this.escapeHtml(this.addProductError)}</div>` : ''}
+                <form id="add-product-form" class="space-y-4">
+                    <div class="grid gap-4 sm:grid-cols-3">
+                        <div>
+                            <label for="select-product" class="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-200">Producto *</label>
+                            <select id="select-product" required class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-[#121212] text-gray-900 dark:text-white px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#F53003]">
+                                <option value="">-- Selecciona un producto --</option>
+                                ${this.products.map(p => `<option value="${p.id}">${this.escapeHtml(p.name)} (${this.escapeHtml(p.sku)})</option>`).join('')}
+                            </select>
+                        </div>
+                        <div>
+                            <label for="product-quantity" class="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-200">Cantidad *</label>
+                            <input id="product-quantity" type="number" required min="1" value="1" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-[#121212] text-gray-900 dark:text-white px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#F53003]" />
+                        </div>
+                        <div>
+                            <label for="product-unit-price" class="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-200">Precio Unitario *</label>
+                            <input id="product-unit-price" type="number" required step="0.01" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-[#121212] text-gray-900 dark:text-white px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#F53003]" />
+                        </div>
+                    </div>
+                    <button type="submit" class="px-4 py-2 bg-[#F53003] text-white rounded-md text-sm font-semibold hover:bg-[#d12a03] transition">Agregar Producto</button>
+                </form>
+            </div>
+
+            <div>
+                <h3 class="text-lg font-semibold mb-4 text-[#1b1b18] dark:text-white">Productos Cotizados</h3>
+                ${tender.products?.length === 0 ? `
+                    <p class="text-center text-gray-600 dark:text-gray-400">No hay productos en esta licitación.</p>
+                ` : `
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead class="bg-gray-100 dark:bg-[#141414] border-b border-gray-200 dark:border-gray-700">
+                                <tr>
+                                    <th class="px-4 py-3 text-left font-semibold text-[#1b1b18] dark:text-white">SKU</th>
+                                    <th class="px-4 py-3 text-left font-semibold text-[#1b1b18] dark:text-white">Producto</th>
+                                    <th class="px-4 py-3 text-left font-semibold text-[#1b1b18] dark:text-white">Cantidad</th>
+                                    <th class="px-4 py-3 text-left font-semibold text-[#1b1b18] dark:text-white">Precio Unit.</th>
+                                    <th class="px-4 py-3 text-left font-semibold text-[#1b1b18] dark:text-white">Subtotal</th>
+                                    <th class="px-4 py-3 text-center font-semibold text-[#1b1b18] dark:text-white">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${tender.products.map(product => `
+                                    <tr class="border-b border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-[#141414]">
+                                        <td class="px-4 py-3 text-gray-900 dark:text-gray-100">${this.escapeHtml(product.sku)}</td>
+                                        <td class="px-4 py-3 text-gray-900 dark:text-gray-100">${this.escapeHtml(product.name)}</td>
+                                        <td class="px-4 py-3 text-gray-900 dark:text-gray-100">${product.pivot?.quantity || 0}</td>
+                                        <td class="px-4 py-3 text-gray-900 dark:text-gray-100">$${parseFloat(product.pivot?.unit_price || 0).toFixed(2)}</td>
+                                        <td class="px-4 py-3 font-semibold text-[#1b1b18] dark:text-white">$${(parseFloat(product.pivot?.quantity || 0) * parseFloat(product.pivot?.unit_price || 0)).toFixed(2)}</td>
+                                        <td class="px-4 py-3 text-center">
+                                            <button data-product-id="${product.id}" class="btn-remove-product px-2 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700 transition">Remover</button>
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `}
+            </div>
+        `;
+    }
+
+    bindEvents() {
+        const viewDetailsButtons = this.root.querySelectorAll('.btn-view-details');
+        const backButton = this.root.querySelector('#btn-back-to-list');
+        const addProductForm = this.root.querySelector('#add-product-form');
+        const removeProductButtons = this.root.querySelectorAll('.btn-remove-product');
+
+        viewDetailsButtons.forEach(btn => {
+            btn.addEventListener('click', (e) => this.handleViewDetails(e));
+        });
+
+        if (backButton) {
+            backButton.addEventListener('click', () => this.handleBackToList());
+        }
+
+        if (addProductForm) {
+            addProductForm.addEventListener('submit', (e) => this.handleAddProduct(e));
+        }
+
+        removeProductButtons.forEach(btn => {
+            btn.addEventListener('click', (e) => this.handleRemoveProduct(e));
+        });
+    }
+
+    async handleViewDetails(event) {
+        event.preventDefault();
+        const tenderId = parseInt(event.target.dataset.tenderId);
+
+        try {
+            this.selectedTender = await this.api.getTender(tenderId);
+            this.products = await this.api.getProducts();
+            this.showDetailView = true;
+            await this.render();
+        } catch (error) {
+            console.error('Error al cargar detalles:', error);
+            alert(error.message || 'Error al cargar los detalles de la licitación.');
+        }
+    }
+
+    handleBackToList() {
+        this.selectedTender = null;
+        this.showDetailView = false;
+        this.addProductError = '';
+        this.render();
+    }
+
+    async handleAddProduct(event) {
+        event.preventDefault();
+
+        const productId = parseInt(this.root.querySelector('#select-product').value);
+        const quantity = parseInt(this.root.querySelector('#product-quantity').value);
+        const unitPrice = parseFloat(this.root.querySelector('#product-unit-price').value);
+
+        if (!productId || !quantity || !unitPrice) {
+            this.addProductError = 'Todos los campos son obligatorios.';
+            this.renderDetailView();
+            return;
+        }
+
+        try {
+            this.addProductError = '';
+            this.selectedTender = await this.api.attachProductToTender(this.selectedTender.id, {
+                product_id: productId,
+                quantity,
+                unit_price: unitPrice,
+            });
+
+            // Limpiar el formulario
+            this.root.querySelector('#select-product').value = '';
+            this.root.querySelector('#product-quantity').value = '1';
+            this.root.querySelector('#product-unit-price').value = '';
+
+            // Actualizar la vista con los nuevos datos
+            const detailView = this.root.querySelector('#tender-detail-view');
+            detailView.innerHTML = this.renderDetailView();
+            this.bindDetailViewEvents();
+        } catch (error) {
+            this.addProductError = error.message || 'Error al agregar el producto.';
+            const detailView = this.root.querySelector('#tender-detail-view');
+            detailView.innerHTML = this.renderDetailView();
+            this.bindDetailViewEvents();
+        }
+    }
+
+    async handleRemoveProduct(event) {
+        event.preventDefault();
+        const productId = parseInt(event.target.dataset.productId);
+
+        if (!confirm('¿Estás seguro de que deseas remover este producto?')) {
+            return;
+        }
+
+        try {
+            this.selectedTender = await this.api.detachProductFromTender(this.selectedTender.id, productId);
+
+            // Actualizar la vista
+            const detailView = this.root.querySelector('#tender-detail-view');
+            detailView.innerHTML = this.renderDetailView();
+            this.bindDetailViewEvents();
+        } catch (error) {
+            console.error('Error al remover producto:', error);
+            alert(error.message || 'Error al remover el producto.');
+        }
+    }
+
+    bindDetailViewEvents() {
+        const backButton = this.root.querySelector('#btn-back-to-list');
+        const addProductForm = this.root.querySelector('#add-product-form');
+        const removeProductButtons = this.root.querySelectorAll('.btn-remove-product');
+
+        if (backButton) {
+            backButton.addEventListener('click', () => this.handleBackToList());
+        }
+
+        if (addProductForm) {
+            addProductForm.addEventListener('submit', (e) => this.handleAddProduct(e));
+        }
+
+        removeProductButtons.forEach(btn => {
+            btn.addEventListener('click', (e) => this.handleRemoveProduct(e));
+        });
+    }
+
+    escapeHtml(text) {
+        const map = {
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#039;',
+        };
+        return text.replace(/[&<>"']/g, (m) => map[m]);
+    }
+}
+
 class App {
     constructor() {
         this.state = new SessionState();
@@ -647,6 +1035,7 @@ class App {
         this.menuView = null;
         this.contentView = null;
         this.productView = null;
+        this.tenderView = null;
     }
 
     init() {
@@ -658,6 +1047,7 @@ class App {
         this.menuView = new MenuView(this.menuRoot, this.state, this.handleNavigate.bind(this), this.handleLogout.bind(this));
         this.contentView = new ContentView(this.contentRoot, this.state);
         this.productView = new ProductView(this.contentRoot, this.state, this.api, this.handleNavigate.bind(this));
+        this.tenderView = new TenderView(this.contentRoot, this.state, this.api, this.handleNavigate.bind(this));
 
         this.state.subscribe(() => this.render());
         this.render();
@@ -671,7 +1061,9 @@ class App {
             return;
         }
 
-        if (this.currentView === 'products') {
+        if (this.currentView === 'tenders') {
+            this.tenderView.render();
+        } else if (this.currentView === 'products') {
             this.productView.render();
         } else {
             this.contentView.render(this.currentView);
