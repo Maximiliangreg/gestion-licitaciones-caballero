@@ -1,5 +1,6 @@
 const API_PATHS = {
     login: '/api/auth/login',
+    products: '/api/products',
 };
 
 class SessionState {
@@ -69,6 +70,18 @@ class SessionState {
 }
 
 class ApiService {
+    constructor(state) {
+        this.state = state;
+    }
+
+    getAuthHeaders() {
+        return {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+            Authorization: `Bearer ${this.state.token}`,
+        };
+    }
+
     async login(email, password) {
         const response = await fetch(API_PATHS.login, {
             method: 'POST',
@@ -87,6 +100,70 @@ class ApiService {
         }
 
         return payload.data;
+    }
+
+    async getProducts() {
+        const response = await fetch(API_PATHS.products, {
+            method: 'GET',
+            headers: this.getAuthHeaders(),
+        });
+
+        const payload = await response.json().catch(() => null);
+
+        if (!response.ok || !payload || payload.success === false) {
+            throw new Error(payload?.message || 'Error al obtener productos.');
+        }
+
+        return payload.data || [];
+    }
+
+    async createProduct(productData) {
+        const response = await fetch(API_PATHS.products, {
+            method: 'POST',
+            headers: this.getAuthHeaders(),
+            body: JSON.stringify(productData),
+        });
+
+        const payload = await response.json().catch(() => null);
+
+        if (!response.ok || !payload || payload.success === false) {
+            const errors = payload?.message || 'Error al crear el producto.';
+            throw new Error(typeof errors === 'object' ? JSON.stringify(errors) : errors);
+        }
+
+        return payload.data;
+    }
+
+    async updateProduct(id, productData) {
+        const response = await fetch(`${API_PATHS.products}/${id}`, {
+            method: 'PUT',
+            headers: this.getAuthHeaders(),
+            body: JSON.stringify(productData),
+        });
+
+        const payload = await response.json().catch(() => null);
+
+        if (!response.ok || !payload || payload.success === false) {
+            const errors = payload?.message || 'Error al actualizar el producto.';
+            throw new Error(typeof errors === 'object' ? JSON.stringify(errors) : errors);
+        }
+
+        return payload.data;
+    }
+
+    async deleteProduct(id) {
+        const response = await fetch(`${API_PATHS.products}/${id}`, {
+            method: 'DELETE',
+            headers: this.getAuthHeaders(),
+        });
+
+        const payload = await response.json().catch(() => null);
+
+        if (!response.ok || !payload || payload.success === false) {
+            throw new Error(payload?.message || 'Error al eliminar el producto.');
+        }
+
+        return true;
     }
 }
 
@@ -191,6 +268,7 @@ class MenuView extends BaseView {
                 ${isAuthenticated ? `
                     <nav class="flex flex-wrap gap-2">
                         <button data-view="dashboard" class="menu-action rounded-md border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium text-[#1b1b18] dark:text-white hover:bg-gray-100 dark:hover:bg-gray-800 transition">Inicio</button>
+                        <button data-view="products" class="menu-action rounded-md border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium text-[#1b1b18] dark:text-white hover:bg-gray-100 dark:hover:bg-gray-800 transition">Productos</button>
                         <button data-view="profile" class="menu-action rounded-md border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium text-[#1b1b18] dark:text-white hover:bg-gray-100 dark:hover:bg-gray-800 transition">Perfil</button>
                         <button data-view="settings" class="menu-action rounded-md border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium text-[#1b1b18] dark:text-white hover:bg-gray-100 dark:hover:bg-gray-800 transition">Ajustes</button>
                         <button id="logout-button" class="rounded-md bg-[#F53003] text-white px-4 py-2 text-sm font-semibold hover:bg-[#d12a03] transition">Cerrar sesi�n</button>
@@ -309,16 +387,266 @@ class ContentView extends BaseView {
     }
 }
 
+class ProductView extends BaseView {
+    constructor(root, state, api, onNavigate) {
+        super(root, state);
+        this.api = api;
+        this.onNavigate = onNavigate;
+        this.products = [];
+        this.isLoading = false;
+        this.isEditing = false;
+        this.editingId = null;
+        this.formError = '';
+    }
+
+    async render() {
+        try {
+            this.isLoading = true;
+            this.products = await this.api.getProducts();
+        } catch (error) {
+            console.error('Error al cargar productos:', error);
+            this.products = [];
+        } finally {
+            this.isLoading = false;
+        }
+
+        this.root.innerHTML = `
+            <section class="max-w-6xl mx-auto bg-white dark:bg-[#111111] rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-8">
+                <div class="mb-8">
+                    <h2 class="text-2xl font-semibold mb-2 text-[#1b1b18] dark:text-white">Catálogo de Productos</h2>
+                    <p class="text-sm text-gray-600 dark:text-gray-300 mb-6">Consultoría y Soluciones Caballero - Gestiona tu inventario de productos.</p>
+                    <button id="btn-create-product" class="rounded-md bg-[#1b1b18] text-white px-4 py-2 text-sm font-semibold hover:bg-[#343434] transition">+ Nuevo Producto</button>
+                </div>
+
+                <div id="product-form-container" class="hidden mb-8 p-6 bg-gray-50 dark:bg-[#141414] rounded-lg border border-gray-200 dark:border-gray-700">
+                    ${this.renderForm()}
+                </div>
+
+                <div id="product-list-container">
+                    ${this.renderProductList()}
+                </div>
+            </section>
+        `;
+
+        this.bindEvents();
+    }
+
+    renderProductList() {
+        if (this.isLoading) {
+            return `<p class="text-center text-gray-600 dark:text-gray-400">Cargando productos...</p>`;
+        }
+
+        if (this.products.length === 0) {
+            return `<p class="text-center text-gray-600 dark:text-gray-400">No hay productos disponibles.</p>`;
+        }
+
+        return `
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead class="bg-gray-100 dark:bg-[#141414] border-b border-gray-200 dark:border-gray-700">
+                        <tr>
+                            <th class="px-4 py-3 text-left font-semibold text-[#1b1b18] dark:text-white">SKU</th>
+                            <th class="px-4 py-3 text-left font-semibold text-[#1b1b18] dark:text-white">Nombre</th>
+                            <th class="px-4 py-3 text-left font-semibold text-[#1b1b18] dark:text-white">Precio Unitario</th>
+                            <th class="px-4 py-3 text-left font-semibold text-[#1b1b18] dark:text-white">Stock</th>
+                            <th class="px-4 py-3 text-center font-semibold text-[#1b1b18] dark:text-white">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${this.products.map(product => `
+                            <tr class="border-b border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-[#141414]">
+                                <td class="px-4 py-3 text-gray-900 dark:text-gray-100">${this.escapeHtml(product.sku)}</td>
+                                <td class="px-4 py-3 text-gray-900 dark:text-gray-100">${this.escapeHtml(product.name)}</td>
+                                <td class="px-4 py-3 text-gray-900 dark:text-gray-100">$${parseFloat(product.unit_price).toFixed(2)}</td>
+                                <td class="px-4 py-3 text-gray-900 dark:text-gray-100">${product.stock}</td>
+                                <td class="px-4 py-3 text-center space-x-2">
+                                    <button class="btn-edit-product px-2 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 transition" data-id="${product.id}">Editar</button>
+                                    <button class="btn-delete-product px-2 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700 transition" data-id="${product.id}">Eliminar</button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    }
+
+    renderForm() {
+        const product = this.isEditing && this.editingId ? this.products.find(p => p.id === this.editingId) : {};
+        const title = this.isEditing ? 'Editar Producto' : 'Crear Nuevo Producto';
+
+        return `
+            <h3 class="text-lg font-semibold mb-4 text-[#1b1b18] dark:text-white">${title}</h3>
+            ${this.formError ? `<div class="mb-4 p-3 bg-red-100 dark:bg-red-900 border border-red-300 dark:border-red-700 text-red-700 dark:text-red-100 rounded text-sm">${this.escapeHtml(this.formError)}</div>` : ''}
+            <form id="product-form" class="space-y-4">
+                <div class="grid gap-4 sm:grid-cols-2">
+                    <div>
+                        <label for="form-sku" class="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-200">SKU *</label>
+                        <input id="form-sku" type="text" required class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-[#121212] text-gray-900 dark:text-white px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#F53003]" value="${this.escapeHtml(product.sku || '')}" />
+                    </div>
+                    <div>
+                        <label for="form-name" class="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-200">Nombre *</label>
+                        <input id="form-name" type="text" required class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-[#121212] text-gray-900 dark:text-white px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#F53003]" value="${this.escapeHtml(product.name || '')}" />
+                    </div>
+                    <div>
+                        <label for="form-unit-price" class="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-200">Precio Unitario *</label>
+                        <input id="form-unit-price" type="number" step="0.01" required class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-[#121212] text-gray-900 dark:text-white px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#F53003]" value="${product.unit_price || ''}" />
+                    </div>
+                    <div>
+                        <label for="form-stock" class="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-200">Stock *</label>
+                        <input id="form-stock" type="number" required min="0" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-[#121212] text-gray-900 dark:text-white px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#F53003]" value="${product.stock || ''}" />
+                    </div>
+                </div>
+                <div class="flex gap-2">
+                    <button type="submit" class="rounded-md bg-[#F53003] text-white px-4 py-2 text-sm font-semibold hover:bg-[#d12a03] transition">${this.isEditing ? 'Actualizar' : 'Crear'}</button>
+                    <button type="button" id="btn-cancel-form" class="rounded-md border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium text-[#1b1b18] dark:text-white hover:bg-gray-100 dark:hover:bg-gray-800 transition">Cancelar</button>
+                </div>
+            </form>
+        `;
+    }
+
+    bindEvents() {
+        const btnCreateProduct = this.root.querySelector('#btn-create-product');
+        const btnCancelForm = this.root.querySelector('#btn-cancel-form');
+        const productForm = this.root.querySelector('#product-form');
+        const btnEditProducts = this.root.querySelectorAll('.btn-edit-product');
+        const btnDeleteProducts = this.root.querySelectorAll('.btn-delete-product');
+
+        if (btnCreateProduct) {
+            btnCreateProduct.addEventListener('click', () => this.showForm(false));
+        }
+
+        if (btnCancelForm) {
+            btnCancelForm.addEventListener('click', () => this.hideForm());
+        }
+
+        if (productForm) {
+            productForm.addEventListener('submit', (e) => this.handleFormSubmit(e));
+        }
+
+        btnEditProducts.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const id = parseInt(e.target.dataset.id);
+                this.showForm(true, id);
+            });
+        });
+
+        btnDeleteProducts.forEach(btn => {
+            btn.addEventListener('click', (e) => this.handleDeleteProduct(e));
+        });
+    }
+
+    showForm(isEditing, id = null) {
+        this.isEditing = isEditing;
+        this.editingId = id;
+        this.formError = '';
+        const formContainer = this.root.querySelector('#product-form-container');
+        if (formContainer) {
+            formContainer.classList.remove('hidden');
+            formContainer.innerHTML = this.renderForm();
+            this.bindFormEvents();
+        }
+    }
+
+    hideForm() {
+        this.isEditing = false;
+        this.editingId = null;
+        this.formError = '';
+        const formContainer = this.root.querySelector('#product-form-container');
+        if (formContainer) {
+            formContainer.classList.add('hidden');
+        }
+    }
+
+    bindFormEvents() {
+        const form = this.root.querySelector('#product-form');
+        const btnCancelForm = this.root.querySelector('#btn-cancel-form');
+
+        if (form) {
+            form.addEventListener('submit', (e) => this.handleFormSubmit(e));
+        }
+
+        if (btnCancelForm) {
+            btnCancelForm.addEventListener('click', () => this.hideForm());
+        }
+    }
+
+    async handleFormSubmit(event) {
+        event.preventDefault();
+
+        const sku = this.root.querySelector('#form-sku').value.trim();
+        const name = this.root.querySelector('#form-name').value.trim();
+        const unitPrice = this.root.querySelector('#form-unit-price').value.trim();
+        const stock = this.root.querySelector('#form-stock').value.trim();
+
+        if (!sku || !name || !unitPrice || !stock) {
+            this.formError = 'Todos los campos son obligatorios.';
+            this.showForm(this.isEditing, this.editingId);
+            return;
+        }
+
+        const productData = {
+            sku,
+            name,
+            unit_price: parseFloat(unitPrice),
+            stock: parseInt(stock),
+        };
+
+        try {
+            if (this.isEditing && this.editingId) {
+                await this.api.updateProduct(this.editingId, productData);
+            } else {
+                await this.api.createProduct(productData);
+            }
+
+            this.hideForm();
+            await this.render();
+        } catch (error) {
+            this.formError = error.message || 'Error al guardar el producto.';
+            this.showForm(this.isEditing, this.editingId);
+        }
+    }
+
+    async handleDeleteProduct(event) {
+        event.preventDefault();
+        const id = parseInt(event.target.dataset.id);
+
+        if (!confirm('¿Estás seguro de que deseas eliminar este producto?')) {
+            return;
+        }
+
+        try {
+            await this.api.deleteProduct(id);
+            await this.render();
+        } catch (error) {
+            console.error('Error al eliminar:', error);
+            alert(error.message || 'Error al eliminar el producto.');
+        }
+    }
+
+    escapeHtml(text) {
+        const map = {
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#039;',
+        };
+        return text.replace(/[&<>"']/g, (m) => map[m]);
+    }
+}
+
 class App {
     constructor() {
         this.state = new SessionState();
-        this.api = new ApiService();
+        this.api = new ApiService(this.state);
         this.menuRoot = document.getElementById('app-header');
         this.contentRoot = document.getElementById('app-content');
         this.currentView = 'dashboard';
         this.loginView = null;
         this.menuView = null;
         this.contentView = null;
+        this.productView = null;
     }
 
     init() {
@@ -329,6 +657,7 @@ class App {
         this.loginView = new LoginView(this.contentRoot, this.state, this.handleLogin.bind(this));
         this.menuView = new MenuView(this.menuRoot, this.state, this.handleNavigate.bind(this), this.handleLogout.bind(this));
         this.contentView = new ContentView(this.contentRoot, this.state);
+        this.productView = new ProductView(this.contentRoot, this.state, this.api, this.handleNavigate.bind(this));
 
         this.state.subscribe(() => this.render());
         this.render();
@@ -342,7 +671,11 @@ class App {
             return;
         }
 
-        this.contentView.render(this.currentView);
+        if (this.currentView === 'products') {
+            this.productView.render();
+        } else {
+            this.contentView.render(this.currentView);
+        }
     }
 
     async handleLogin({ email, password }) {
@@ -362,7 +695,7 @@ class App {
 
     handleNavigate(view) {
         this.currentView = view;
-        this.contentView.render(view);
+        this.render();
     }
 
     handleLogout() {
