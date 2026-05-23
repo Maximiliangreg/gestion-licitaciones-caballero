@@ -3,7 +3,7 @@
 Este proyecto es un Producto Mínimo Viable (MVP) diseñado para la gestión y seguimiento de licitaciones comerciales, centralizando información de oportunidades de negocio, control de presupuestos y catálogo de productos ofertados. Desarrollado como prueba técnica con un enfoque arquitectónico escalable y de alta trazabilidad.
 
 ## 🛠️ Stack Tecnológico y Entorno
-* **Backend:** Laravel 11 (PHP 8.2+)
+* **Backend:** Laravel 13 (PHP 8.2+)
 * **Base de Datos:** PostgreSQL 17 (Alpine)
 * **Contenerización:** Docker & Docker Compose (Laravel Sail / Entorno Aislado)
 
