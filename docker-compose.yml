@@ -1,6 +1,8 @@
 services:
     laravel.test:
-        image: 'openswoole/swoole:22.0.0-php8.4-alpine'
+        build:
+            context: .
+            dockerfile: Dockerfile
         extra_hosts:
             - 'host.docker.internal:host-gateway'
         ports:
@@ -9,8 +11,10 @@ services:
         environment:
             WWWUSER: '${WWWUSER:-1000}'
             LARAVEL_SAIL: 1
-        volumes:
-            - '.:/var/www/html'
+        # Note: the project is copied into the image during build. If you need
+        # live code editing during development, revert to mounting the project
+        # directory here (but be aware that a bind mount will hide the built
+        # `public/build` directory from the image).
         working_dir: /var/www/html
         command: ['php', 'artisan', 'serve', '--host=0.0.0.0', '--port=80']
         networks:
