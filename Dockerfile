@@ -11,15 +11,33 @@ COPY resources ./resources
 RUN npm ci --silent
 RUN npm run build
 
-FROM openswoole/swoole:22.0.0-php8.4-alpine AS app
+FROM php:8.4-cli-alpine AS app
 WORKDIR /var/www/html
 
-# Copy full application (composer/vendor should be handled outside or earlier)
+# Install required PHP extensions and tools
+RUN apk add --no-cache \
+    curl \
+    git \
+    postgresql-client \
+    libpq-dev \
+    && docker-php-ext-configure pdo_pgsql \
+    && docker-php-ext-install pdo pdo_pgsql bcmath ctype json tokenizer xml
+
+# Install Composer
+RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+
+# Copy full application
 COPY . .
+
+# Install PHP dependencies with Composer
+RUN composer install --no-dev --optimize-autoloader
 
 # Copy built frontend assets from node builder
 COPY --from=node_builder /app/public/build ./public/build
 
-EXPOSE 80
+# Set permissions for storage and bootstrap
+RUN chmod -R 775 storage bootstrap/cache
 
-CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=80"]
+EXPOSE 8000
+
+CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]
