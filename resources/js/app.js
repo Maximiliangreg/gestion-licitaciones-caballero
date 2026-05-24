@@ -1,1 +1,1101 @@
-//
+const API_PATHS = {
+    login: '/api/auth/login',
+    products: '/api/products',
+    tenders: '/api/tenders',
+};
+
+class SessionState {
+    constructor() {
+        this.token = localStorage.getItem('spa_token');
+        this.user = this.loadJson('spa_user');
+        this.role = localStorage.getItem('spa_role');
+        this.subscribers = [];
+    }
+
+    loadJson(key) {
+        try {
+            const value = localStorage.getItem(key);
+            return value ? JSON.parse(value) : null;
+        } catch {
+            return null;
+        }
+    }
+
+    save() {
+        if (this.token) {
+            localStorage.setItem('spa_token', this.token);
+        } else {
+            localStorage.removeItem('spa_token');
+        }
+
+        if (this.role) {
+            localStorage.setItem('spa_role', this.role);
+        } else {
+            localStorage.removeItem('spa_role');
+        }
+
+        if (this.user) {
+            localStorage.setItem('spa_user', JSON.stringify(this.user));
+        } else {
+            localStorage.removeItem('spa_user');
+        }
+    }
+
+    setSession(token, user, role) {
+        this.token = token;
+        this.user = user;
+        this.role = role;
+        this.save();
+        this.notify();
+    }
+
+    clearSession() {
+        this.token = null;
+        this.user = null;
+        this.role = null;
+        this.save();
+        this.notify();
+    }
+
+    subscribe(callback) {
+        this.subscribers.push(callback);
+    }
+
+    notify() {
+        this.subscribers.forEach((callback) => callback(this));
+    }
+
+    get isAuthenticated() {
+        return Boolean(this.token);
+    }
+}
+
+class ApiService {
+    constructor(state) {
+        this.state = state;
+    }
+
+    getAuthHeaders() {
+        return {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+            Authorization: `Bearer ${this.state.token}`,
+        };
+    }
+
+    async login(email, password) {
+        const response = await fetch(API_PATHS.login, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+            },
+            body: JSON.stringify({ email, password }),
+        });
+
+        const payload = await response.json().catch(() => null);
+
+        if (!response.ok || !payload || payload.success === false) {
+            const message = payload?.message || 'Error de autenticaci�n.';
+            throw new Error(message);
+        }
+
+        return payload.data;
+    }
+
+    async getProducts() {
+        const response = await fetch(API_PATHS.products, {
+            method: 'GET',
+            headers: this.getAuthHeaders(),
+        });
+
+        const payload = await response.json().catch(() => null);
+
+        if (!response.ok || !payload || payload.success === false) {
+            throw new Error(payload?.message || 'Error al obtener productos.');
+        }
+
+        return payload.data || [];
+    }
+
+    async createProduct(productData) {
+        const response = await fetch(API_PATHS.products, {
+            method: 'POST',
+            headers: this.getAuthHeaders(),
+            body: JSON.stringify(productData),
+        });
+
+        const payload = await response.json().catch(() => null);
+
+        if (!response.ok || !payload || payload.success === false) {
+            const errors = payload?.message || 'Error al crear el producto.';
+            throw new Error(typeof errors === 'object' ? JSON.stringify(errors) : errors);
+        }
+
+        return payload.data;
+    }
+
+    async updateProduct(id, productData) {
+        const response = await fetch(`${API_PATHS.products}/${id}`, {
+            method: 'PUT',
+            headers: this.getAuthHeaders(),
+            body: JSON.stringify(productData),
+        });
+
+        const payload = await response.json().catch(() => null);
+
+        if (!response.ok || !payload || payload.success === false) {
+            const errors = payload?.message || 'Error al actualizar el producto.';
+            throw new Error(typeof errors === 'object' ? JSON.stringify(errors) : errors);
+        }
+
+        return payload.data;
+    }
+
+    async deleteProduct(id) {
+        const response = await fetch(`${API_PATHS.products}/${id}`, {
+            method: 'DELETE',
+            headers: this.getAuthHeaders(),
+        });
+
+        const payload = await response.json().catch(() => null);
+
+        if (!response.ok || !payload || payload.success === false) {
+            throw new Error(payload?.message || 'Error al eliminar el producto.');
+        }
+
+        return true;
+    }
+
+    async getTenders() {
+        const response = await fetch(API_PATHS.tenders, {
+            method: 'GET',
+            headers: this.getAuthHeaders(),
+        });
+
+        const payload = await response.json().catch(() => null);
+
+        if (!response.ok || !payload || payload.success === false) {
+            throw new Error(payload?.message || 'Error al obtener licitaciones.');
+        }
+
+        return payload.data || [];
+    }
+
+    async getTender(id) {
+        const response = await fetch(`${API_PATHS.tenders}/${id}`, {
+            method: 'GET',
+            headers: this.getAuthHeaders(),
+        });
+
+        const payload = await response.json().catch(() => null);
+
+        if (!response.ok || !payload || payload.success === false) {
+            throw new Error(payload?.message || 'Error al obtener la licitación.');
+        }
+
+        return payload.data;
+    }
+
+    async attachProductToTender(tenderId, productData) {
+        const response = await fetch(`${API_PATHS.tenders}/${tenderId}/attach-product`, {
+            method: 'POST',
+            headers: this.getAuthHeaders(),
+            body: JSON.stringify(productData),
+        });
+
+        const payload = await response.json().catch(() => null);
+
+        if (!response.ok || !payload || payload.success === false) {
+            const errors = payload?.message || 'Error al agregar producto a licitación.';
+            throw new Error(typeof errors === 'object' ? JSON.stringify(errors) : errors);
+        }
+
+        return payload.data;
+    }
+
+    async detachProductFromTender(tenderId, productId) {
+        const response = await fetch(`${API_PATHS.tenders}/${tenderId}/detach-product`, {
+            method: 'POST',
+            headers: this.getAuthHeaders(),
+            body: JSON.stringify({ product_id: productId }),
+        });
+
+        const payload = await response.json().catch(() => null);
+
+        if (!response.ok || !payload || payload.success === false) {
+            throw new Error(payload?.message || 'Error al remover producto de licitación.');
+        }
+
+        return payload.data;
+    }
+}
+
+class BaseView {
+    constructor(root, state) {
+        this.root = root;
+        this.state = state;
+    }
+
+    clear() {
+        this.root.innerHTML = '';
+    }
+}
+
+class LoginView extends BaseView {
+    constructor(root, state, onSubmit) {
+        super(root, state);
+        this.onSubmit = onSubmit;
+        this.errorMessage = '';
+    }
+
+    render() {
+        this.root.innerHTML = `
+            <section class="max-w-md mx-auto bg-white dark:bg-[#111111] rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-8">
+                <h1 class="text-2xl font-semibold mb-3 text-[#1b1b18] dark:text-white">Iniciar sesi�n</h1>
+                <p class="text-sm text-gray-600 dark:text-gray-300 mb-6">Ingresa tu correo y contrase�a para acceder al panel.</p>
+                <form id="login-form" class="space-y-4">
+                    <div>
+                        <label for="login-email" class="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-200">Email</label>
+                        <input id="login-email" type="email" autocomplete="username" required class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-[#121212] text-gray-900 dark:text-white px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#F53003]" />
+                    </div>
+                    <div>
+                        <label for="login-password" class="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-200">Contrase�a</label>
+                        <input id="login-password" type="password" autocomplete="current-password" required class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-[#121212] text-gray-900 dark:text-white px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#F53003]" />
+                    </div>
+                    <button type="submit" class="w-full rounded-md bg-[#1b1b18] text-white py-3 text-sm font-semibold hover:bg-[#343434] transition">Entrar</button>
+                </form>
+                <p id="login-error" class="${this.errorMessage ? 'mt-4 text-sm text-red-600' : 'hidden'}">${this.errorMessage || ''}</p>
+            </section>
+        `;
+
+        this.bindEvents();
+    }
+
+    bindEvents() {
+        const form = this.root.querySelector('#login-form');
+
+        if (form) {
+            form.addEventListener('submit', this.handleSubmit.bind(this));
+        }
+    }
+
+    setError(message) {
+        this.errorMessage = message;
+        const errorEl = this.root.querySelector('#login-error');
+
+        if (!errorEl) {
+            return;
+        }
+
+        errorEl.textContent = message || '';
+        errorEl.classList.toggle('hidden', !message);
+        errorEl.classList.toggle('mt-4', Boolean(message));
+        errorEl.classList.toggle('text-red-600', Boolean(message));
+    }
+
+    handleSubmit(event) {
+        event.preventDefault();
+
+        const email = this.root.querySelector('#login-email').value.trim();
+        const password = this.root.querySelector('#login-password').value.trim();
+
+        if (!email || !password) {
+            this.setError('El email y la contrase�a son obligatorios.');
+            return;
+        }
+
+        this.setError('');
+        this.onSubmit({ email, password });
+    }
+}
+
+class MenuView extends BaseView {
+    constructor(root, state, onNavigate, onLogout) {
+        super(root, state);
+        this.onNavigate = onNavigate;
+        this.onLogout = onLogout;
+        this.activeView = 'dashboard';
+    }
+
+    render() {
+        const isAuthenticated = this.state.isAuthenticated;
+        const userName = this.state.user?.name ?? 'Invitado';
+        const role = this.state.role ?? 'user';
+
+        this.root.innerHTML = `
+            <div class="max-w-6xl mx-auto flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                    <p class="text-lg font-semibold text-[#1b1b18] dark:text-white">Caballero SPA</p>
+                    <p class="text-sm text-gray-600 dark:text-gray-400">${isAuthenticated ? `${userName} � ${role}` : 'Por favor inicia sesi�n para ver el contenido.'}</p>
+                </div>
+                ${isAuthenticated ? `
+                    <nav class="flex flex-wrap gap-2">
+                        <button data-view="dashboard" class="menu-action rounded-md border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium text-[#1b1b18] dark:text-white hover:bg-gray-100 dark:hover:bg-gray-800 transition">Inicio</button>
+                        <button data-view="tenders" class="menu-action rounded-md border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium text-[#1b1b18] dark:text-white hover:bg-gray-100 dark:hover:bg-gray-800 transition">Licitaciones</button>
+                        <button data-view="products" class="menu-action rounded-md border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium text-[#1b1b18] dark:text-white hover:bg-gray-100 dark:hover:bg-gray-800 transition">Productos</button>
+                        <button data-view="profile" class="menu-action rounded-md border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium text-[#1b1b18] dark:text-white hover:bg-gray-100 dark:hover:bg-gray-800 transition">Perfil</button>
+                        <button data-view="settings" class="menu-action rounded-md border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium text-[#1b1b18] dark:text-white hover:bg-gray-100 dark:hover:bg-gray-800 transition">Ajustes</button>
+                        <button id="logout-button" class="rounded-md bg-[#F53003] text-white px-4 py-2 text-sm font-semibold hover:bg-[#d12a03] transition">Cerrar sesi�n</button>
+                    </nav>
+                ` : ''}
+            </div>
+        `;
+
+        this.bindEvents();
+    }
+
+    bindEvents() {
+        if (!this.state.isAuthenticated) {
+            return;
+        }
+
+        const buttons = this.root.querySelectorAll('.menu-action');
+
+        buttons.forEach((button) => {
+            button.addEventListener('click', (event) => {
+                event.preventDefault();
+                this.activeView = event.currentTarget.dataset.view;
+                this.onNavigate(this.activeView);
+            });
+        });
+
+        const logoutButton = this.root.querySelector('#logout-button');
+
+        if (logoutButton) {
+            logoutButton.addEventListener('click', (event) => {
+                event.preventDefault();
+                this.onLogout();
+            });
+        }
+    }
+}
+
+class ContentView extends BaseView {
+    render(view) {
+        if (!this.state.isAuthenticated) {
+            this.clear();
+            return;
+        }
+
+        let content = '';
+
+        switch (view) {
+            case 'profile':
+                content = this.profileView();
+                break;
+            case 'settings':
+                content = this.settingsView();
+                break;
+            default:
+                content = this.dashboardView();
+                break;
+        }
+
+        this.root.innerHTML = `
+            <section class="max-w-6xl mx-auto bg-white dark:bg-[#111111] rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-8">
+                ${content}
+            </section>
+        `;
+    }
+
+    dashboardView() {
+        return `
+            <div>
+                <h2 class="text-2xl font-semibold mb-4 text-[#1b1b18] dark:text-white">Panel principal</h2>
+                <p class="text-sm text-gray-600 dark:text-gray-300 mb-4">Bienvenido ${this.state.user?.name ?? 'usuario'}. Aqu� puedes navegar entre las vistas del sistema sin recargar la p�gina.</p>
+                <div class="grid gap-4 sm:grid-cols-2">
+                    <div class="rounded-xl border border-gray-200 dark:border-gray-700 p-4 bg-gray-50 dark:bg-[#141414]">
+                        <p class="text-sm text-gray-600 dark:text-gray-400">Rol de usuario</p>
+                        <p class="mt-2 font-semibold text-[#1b1b18] dark:text-white">${this.state.role}</p>
+                    </div>
+                    <div class="rounded-xl border border-gray-200 dark:border-gray-700 p-4 bg-gray-50 dark:bg-[#141414]">
+                        <p class="text-sm text-gray-600 dark:text-gray-400">Token activo</p>
+                        <p class="mt-2 text-sm text-gray-700 dark:text-gray-300 break-all">${this.state.token}</p>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    profileView() {
+        return `
+            <div>
+                <h2 class="text-2xl font-semibold mb-4 text-[#1b1b18] dark:text-white">Perfil</h2>
+                <p class="text-sm text-gray-600 dark:text-gray-300 mb-6">Datos b�sicos del usuario autenticado.</p>
+                <dl class="grid gap-4 sm:grid-cols-2">
+                    <div class="rounded-xl border border-gray-200 dark:border-gray-700 p-4 bg-gray-50 dark:bg-[#141414]">
+                        <dt class="text-xs uppercase text-gray-500 dark:text-gray-400">Nombre</dt>
+                        <dd class="mt-2 font-medium text-[#1b1b18] dark:text-white">${this.state.user?.name ?? 'N/A'}</dd>
+                    </div>
+                    <div class="rounded-xl border border-gray-200 dark:border-gray-700 p-4 bg-gray-50 dark:bg-[#141414]">
+                        <dt class="text-xs uppercase text-gray-500 dark:text-gray-400">Rol</dt>
+                        <dd class="mt-2 font-medium text-[#1b1b18] dark:text-white">${this.state.role}</dd>
+                    </div>
+                </dl>
+            </div>
+        `;
+    }
+
+    settingsView() {
+        return `
+            <div>
+                <h2 class="text-2xl font-semibold mb-4 text-[#1b1b18] dark:text-white">Ajustes</h2>
+                <p class="text-sm text-gray-600 dark:text-gray-300 mb-4">Esta vista sirve como punto de partida para generar componentes de configuraci�n.</p>
+                <ul class="space-y-3 text-sm text-gray-700 dark:text-gray-300">
+                    <li class="rounded-xl p-4 bg-gray-50 dark:bg-[#141414] border border-gray-200 dark:border-gray-700">Gesti�n de perfil y permisos</li>
+                    <li class="rounded-xl p-4 bg-gray-50 dark:bg-[#141414] border border-gray-200 dark:border-gray-700">Preferencias de la aplicaci�n</li>
+                    <li class="rounded-xl p-4 bg-gray-50 dark:bg-[#141414] border border-gray-200 dark:border-gray-700">Notificaciones y seguridad</li>
+                </ul>
+            </div>
+        `;
+    }
+}
+
+class ProductView extends BaseView {
+    constructor(root, state, api, onNavigate) {
+        super(root, state);
+        this.api = api;
+        this.onNavigate = onNavigate;
+        this.products = [];
+        this.isLoading = false;
+        this.isEditing = false;
+        this.editingId = null;
+        this.formError = '';
+    }
+
+    async render() {
+        try {
+            this.isLoading = true;
+            this.products = await this.api.getProducts();
+        } catch (error) {
+            console.error('Error al cargar productos:', error);
+            this.products = [];
+        } finally {
+            this.isLoading = false;
+        }
+
+        this.root.innerHTML = `
+            <section class="max-w-6xl mx-auto bg-white dark:bg-[#111111] rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-8">
+                <div class="mb-8">
+                    <h2 class="text-2xl font-semibold mb-2 text-[#1b1b18] dark:text-white">Catálogo de Productos</h2>
+                    <p class="text-sm text-gray-600 dark:text-gray-300 mb-6">Consultoría y Soluciones Caballero - Gestiona tu inventario de productos.</p>
+                    <button id="btn-create-product" class="rounded-md bg-[#1b1b18] text-white px-4 py-2 text-sm font-semibold hover:bg-[#343434] transition">+ Nuevo Producto</button>
+                </div>
+
+                <div id="product-form-container" class="hidden mb-8 p-6 bg-gray-50 dark:bg-[#141414] rounded-lg border border-gray-200 dark:border-gray-700">
+                    ${this.renderForm()}
+                </div>
+
+                <div id="product-list-container">
+                    ${this.renderProductList()}
+                </div>
+            </section>
+        `;
+
+        this.bindEvents();
+    }
+
+    renderProductList() {
+        if (this.isLoading) {
+            return `<p class="text-center text-gray-600 dark:text-gray-400">Cargando productos...</p>`;
+        }
+
+        if (this.products.length === 0) {
+            return `<p class="text-center text-gray-600 dark:text-gray-400">No hay productos disponibles.</p>`;
+        }
+
+        return `
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead class="bg-gray-100 dark:bg-[#141414] border-b border-gray-200 dark:border-gray-700">
+                        <tr>
+                            <th class="px-4 py-3 text-left font-semibold text-[#1b1b18] dark:text-white">SKU</th>
+                            <th class="px-4 py-3 text-left font-semibold text-[#1b1b18] dark:text-white">Nombre</th>
+                            <th class="px-4 py-3 text-left font-semibold text-[#1b1b18] dark:text-white">Precio Unitario</th>
+                            <th class="px-4 py-3 text-left font-semibold text-[#1b1b18] dark:text-white">Stock</th>
+                            <th class="px-4 py-3 text-center font-semibold text-[#1b1b18] dark:text-white">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${this.products.map(product => `
+                            <tr class="border-b border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-[#141414]">
+                                <td class="px-4 py-3 text-gray-900 dark:text-gray-100">${this.escapeHtml(product.sku)}</td>
+                                <td class="px-4 py-3 text-gray-900 dark:text-gray-100">${this.escapeHtml(product.name)}</td>
+                                <td class="px-4 py-3 text-gray-900 dark:text-gray-100">$${parseFloat(product.unit_price).toFixed(2)}</td>
+                                <td class="px-4 py-3 text-gray-900 dark:text-gray-100">${product.stock}</td>
+                                <td class="px-4 py-3 text-center space-x-2">
+                                    <button class="btn-edit-product px-2 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 transition" data-id="${product.id}">Editar</button>
+                                    <button class="btn-delete-product px-2 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700 transition" data-id="${product.id}">Eliminar</button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    }
+
+    renderForm() {
+        const product = this.isEditing && this.editingId ? this.products.find(p => p.id === this.editingId) : {};
+        const title = this.isEditing ? 'Editar Producto' : 'Crear Nuevo Producto';
+
+        return `
+            <h3 class="text-lg font-semibold mb-4 text-[#1b1b18] dark:text-white">${title}</h3>
+            ${this.formError ? `<div class="mb-4 p-3 bg-red-100 dark:bg-red-900 border border-red-300 dark:border-red-700 text-red-700 dark:text-red-100 rounded text-sm">${this.escapeHtml(this.formError)}</div>` : ''}
+            <form id="product-form" class="space-y-4">
+                <div class="grid gap-4 sm:grid-cols-2">
+                    <div>
+                        <label for="form-sku" class="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-200">SKU *</label>
+                        <input id="form-sku" type="text" required class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-[#121212] text-gray-900 dark:text-white px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#F53003]" value="${this.escapeHtml(product.sku || '')}" />
+                    </div>
+                    <div>
+                        <label for="form-name" class="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-200">Nombre *</label>
+                        <input id="form-name" type="text" required class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-[#121212] text-gray-900 dark:text-white px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#F53003]" value="${this.escapeHtml(product.name || '')}" />
+                    </div>
+                    <div>
+                        <label for="form-unit-price" class="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-200">Precio Unitario *</label>
+                        <input id="form-unit-price" type="number" step="0.01" required class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-[#121212] text-gray-900 dark:text-white px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#F53003]" value="${product.unit_price || ''}" />
+                    </div>
+                    <div>
+                        <label for="form-stock" class="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-200">Stock *</label>
+                        <input id="form-stock" type="number" required min="0" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-[#121212] text-gray-900 dark:text-white px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#F53003]" value="${product.stock || ''}" />
+                    </div>
+                </div>
+                <div class="flex gap-2">
+                    <button type="submit" class="rounded-md bg-[#F53003] text-white px-4 py-2 text-sm font-semibold hover:bg-[#d12a03] transition">${this.isEditing ? 'Actualizar' : 'Crear'}</button>
+                    <button type="button" id="btn-cancel-form" class="rounded-md border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium text-[#1b1b18] dark:text-white hover:bg-gray-100 dark:hover:bg-gray-800 transition">Cancelar</button>
+                </div>
+            </form>
+        `;
+    }
+
+    bindEvents() {
+        const btnCreateProduct = this.root.querySelector('#btn-create-product');
+        const btnCancelForm = this.root.querySelector('#btn-cancel-form');
+        const productForm = this.root.querySelector('#product-form');
+        const btnEditProducts = this.root.querySelectorAll('.btn-edit-product');
+        const btnDeleteProducts = this.root.querySelectorAll('.btn-delete-product');
+
+        if (btnCreateProduct) {
+            btnCreateProduct.addEventListener('click', () => this.showForm(false));
+        }
+
+        if (btnCancelForm) {
+            btnCancelForm.addEventListener('click', () => this.hideForm());
+        }
+
+        if (productForm) {
+            productForm.addEventListener('submit', (e) => this.handleFormSubmit(e));
+        }
+
+        btnEditProducts.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const id = parseInt(e.target.dataset.id);
+                this.showForm(true, id);
+            });
+        });
+
+        btnDeleteProducts.forEach(btn => {
+            btn.addEventListener('click', (e) => this.handleDeleteProduct(e));
+        });
+    }
+
+    showForm(isEditing, id = null) {
+        this.isEditing = isEditing;
+        this.editingId = id;
+        this.formError = '';
+        const formContainer = this.root.querySelector('#product-form-container');
+        if (formContainer) {
+            formContainer.classList.remove('hidden');
+            formContainer.innerHTML = this.renderForm();
+            this.bindFormEvents();
+        }
+    }
+
+    hideForm() {
+        this.isEditing = false;
+        this.editingId = null;
+        this.formError = '';
+        const formContainer = this.root.querySelector('#product-form-container');
+        if (formContainer) {
+            formContainer.classList.add('hidden');
+        }
+    }
+
+    bindFormEvents() {
+        const form = this.root.querySelector('#product-form');
+        const btnCancelForm = this.root.querySelector('#btn-cancel-form');
+
+        if (form) {
+            form.addEventListener('submit', (e) => this.handleFormSubmit(e));
+        }
+
+        if (btnCancelForm) {
+            btnCancelForm.addEventListener('click', () => this.hideForm());
+        }
+    }
+
+    async handleFormSubmit(event) {
+        event.preventDefault();
+
+        const sku = this.root.querySelector('#form-sku').value.trim();
+        const name = this.root.querySelector('#form-name').value.trim();
+        const unitPrice = this.root.querySelector('#form-unit-price').value.trim();
+        const stock = this.root.querySelector('#form-stock').value.trim();
+
+        if (!sku || !name || !unitPrice || !stock) {
+            this.formError = 'Todos los campos son obligatorios.';
+            this.showForm(this.isEditing, this.editingId);
+            return;
+        }
+
+        const productData = {
+            sku,
+            name,
+            unit_price: parseFloat(unitPrice),
+            stock: parseInt(stock),
+        };
+
+        try {
+            if (this.isEditing && this.editingId) {
+                await this.api.updateProduct(this.editingId, productData);
+            } else {
+                await this.api.createProduct(productData);
+            }
+
+            this.hideForm();
+            await this.render();
+        } catch (error) {
+            this.formError = error.message || 'Error al guardar el producto.';
+            this.showForm(this.isEditing, this.editingId);
+        }
+    }
+
+    async handleDeleteProduct(event) {
+        event.preventDefault();
+        const id = parseInt(event.target.dataset.id);
+
+        if (!confirm('¿Estás seguro de que deseas eliminar este producto?')) {
+            return;
+        }
+
+        try {
+            await this.api.deleteProduct(id);
+            await this.render();
+        } catch (error) {
+            console.error('Error al eliminar:', error);
+            alert(error.message || 'Error al eliminar el producto.');
+        }
+    }
+
+    escapeHtml(text) {
+        const map = {
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#039;',
+        };
+        return text.replace(/[&<>"']/g, (m) => map[m]);
+    }
+}
+
+class TenderView extends BaseView {
+    constructor(root, state, api, onNavigate) {
+        super(root, state);
+        this.api = api;
+        this.onNavigate = onNavigate;
+        this.tenders = [];
+        this.selectedTender = null;
+        this.products = [];
+        this.isLoading = false;
+        this.showDetailView = false;
+        this.addProductError = '';
+    }
+
+    async render() {
+        try {
+            this.isLoading = true;
+            this.tenders = await this.api.getTenders();
+        } catch (error) {
+            console.error('Error al cargar licitaciones:', error);
+            this.tenders = [];
+        } finally {
+            this.isLoading = false;
+        }
+
+        this.root.innerHTML = `
+            <section class="max-w-6xl mx-auto bg-white dark:bg-[#111111] rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-8">
+                <div id="tender-list-view" ${this.showDetailView ? 'class="hidden"' : ''}>
+                    ${this.renderListView()}
+                </div>
+                <div id="tender-detail-view" ${this.showDetailView ? '' : 'class="hidden"'}>
+                    ${this.renderDetailView()}
+                </div>
+            </section>
+        `;
+
+        this.bindEvents();
+    }
+
+    renderListView() {
+        return `
+            <div class="mb-8">
+                <h2 class="text-2xl font-semibold mb-2 text-[#1b1b18] dark:text-white">Tablero de Licitaciones</h2>
+                <p class="text-sm text-gray-600 dark:text-gray-300">Gestiona todas tus licitaciones y cotizaciones.</p>
+            </div>
+
+            ${this.isLoading ? `
+                <p class="text-center text-gray-600 dark:text-gray-400">Cargando licitaciones...</p>
+            ` : this.tenders.length === 0 ? `
+                <p class="text-center text-gray-600 dark:text-gray-400">No hay licitaciones disponibles.</p>
+            ` : `
+                <div class="grid gap-4">
+                    ${this.tenders.map(tender => this.renderTenderCard(tender)).join('')}
+                </div>
+            `}
+        `;
+    }
+
+    renderTenderCard(tender) {
+        const statusColors = {
+            'activa': 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-100',
+            'pausada': 'bg-yellow-100 dark:bg-yellow-900 text-yellow-700 dark:text-yellow-100',
+            'finalizada': 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-100',
+            'cancelada': 'bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-100',
+        };
+
+        const statusClass = statusColors[tender.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300';
+
+        return `
+            <div class="rounded-xl border border-gray-200 dark:border-gray-700 p-6 bg-gray-50 dark:bg-[#141414] hover:shadow-md transition">
+                <div class="flex justify-between items-start mb-4">
+                    <div>
+                        <h3 class="text-lg font-semibold text-[#1b1b18] dark:text-white">${this.escapeHtml(tender.title)}</h3>
+                        <p class="text-sm text-gray-600 dark:text-gray-400 mt-1">Cliente: ${this.escapeHtml(tender.client?.name || 'N/A')}</p>
+                    </div>
+                    <span class="px-3 py-1 rounded-full text-xs font-medium ${statusClass}">${this.escapeHtml(tender.status)}</span>
+                </div>
+                <div class="grid grid-cols-3 gap-4 mb-4">
+                    <div>
+                        <p class="text-xs uppercase text-gray-500 dark:text-gray-400">Presupuesto Máx.</p>
+                        <p class="text-lg font-semibold text-[#1b1b18] dark:text-white">$${parseFloat(tender.max_budget).toFixed(2)}</p>
+                    </div>
+                    <div>
+                        <p class="text-xs uppercase text-gray-500 dark:text-gray-400">Total Cotizado</p>
+                        <p class="text-lg font-semibold text-[#1b1b18] dark:text-white">$${parseFloat(tender.total_amount).toFixed(2)}</p>
+                    </div>
+                    <div>
+                        <p class="text-xs uppercase text-gray-500 dark:text-gray-400">Productos</p>
+                        <p class="text-lg font-semibold text-[#1b1b18] dark:text-white">${tender.products?.length || 0}</p>
+                    </div>
+                </div>
+                <button data-tender-id="${tender.id}" class="btn-view-details px-4 py-2 bg-[#1b1b18] dark:bg-[#333333] text-white rounded-md text-sm font-medium hover:bg-[#343434] dark:hover:bg-[#444444] transition">Ver Detalles</button>
+            </div>
+        `;
+    }
+
+    renderDetailView() {
+        if (!this.selectedTender) {
+            return `<p class="text-center text-gray-600 dark:text-gray-400">Cargando detalles...</p>`;
+        }
+
+        const tender = this.selectedTender;
+
+        return `
+            <div class="mb-8">
+                <button id="btn-back-to-list" class="mb-4 px-4 py-2 text-sm font-medium text-[#1b1b18] dark:text-white border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 transition">← Volver a Licitaciones</button>
+                <h2 class="text-2xl font-semibold mb-2 text-[#1b1b18] dark:text-white">${this.escapeHtml(tender.title)}</h2>
+                <p class="text-sm text-gray-600 dark:text-gray-300">${this.escapeHtml(tender.description || 'Sin descripción')}</p>
+            </div>
+
+            <div class="grid gap-6 lg:grid-cols-3 mb-8">
+                <div class="rounded-xl border border-gray-200 dark:border-gray-700 p-6 bg-gray-50 dark:bg-[#141414]">
+                    <p class="text-xs uppercase text-gray-500 dark:text-gray-400 mb-2">Cliente Asignado</p>
+                    <p class="text-lg font-semibold text-[#1b1b18] dark:text-white">${this.escapeHtml(tender.client?.name || 'N/A')}</p>
+                    <p class="text-xs text-gray-600 dark:text-gray-400 mt-2">${this.escapeHtml(tender.client?.email || '')}</p>
+                    <p class="text-xs text-gray-600 dark:text-gray-400">${this.escapeHtml(tender.client?.phone || '')}</p>
+                </div>
+                <div class="rounded-xl border border-gray-200 dark:border-gray-700 p-6 bg-gray-50 dark:bg-[#141414]">
+                    <p class="text-xs uppercase text-gray-500 dark:text-gray-400 mb-2">Presupuesto Máximo</p>
+                    <p class="text-lg font-semibold text-[#1b1b18] dark:text-white">$${parseFloat(tender.max_budget).toFixed(2)}</p>
+                </div>
+                <div class="rounded-xl border border-gray-200 dark:border-gray-700 p-6 bg-gray-50 dark:bg-[#141414]">
+                    <p class="text-xs uppercase text-gray-500 dark:text-gray-400 mb-2">Total Cotizado</p>
+                    <p class="text-lg font-semibold text-[#F53003]">$${parseFloat(tender.total_amount).toFixed(2)}</p>
+                </div>
+            </div>
+
+            <div class="mb-8 rounded-xl border border-gray-200 dark:border-gray-700 p-6 bg-gray-50 dark:bg-[#141414]">
+                <h3 class="text-lg font-semibold mb-4 text-[#1b1b18] dark:text-white">Agregar Producto a Licitación</h3>
+                ${this.addProductError ? `<div class="mb-4 p-3 bg-red-100 dark:bg-red-900 border border-red-300 dark:border-red-700 text-red-700 dark:text-red-100 rounded text-sm">${this.escapeHtml(this.addProductError)}</div>` : ''}
+                <form id="add-product-form" class="space-y-4">
+                    <div class="grid gap-4 sm:grid-cols-3">
+                        <div>
+                            <label for="select-product" class="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-200">Producto *</label>
+                            <select id="select-product" required class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-[#121212] text-gray-900 dark:text-white px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#F53003]">
+                                <option value="">-- Selecciona un producto --</option>
+                                ${this.products.map(p => `<option value="${p.id}">${this.escapeHtml(p.name)} (${this.escapeHtml(p.sku)})</option>`).join('')}
+                            </select>
+                        </div>
+                        <div>
+                            <label for="product-quantity" class="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-200">Cantidad *</label>
+                            <input id="product-quantity" type="number" required min="1" value="1" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-[#121212] text-gray-900 dark:text-white px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#F53003]" />
+                        </div>
+                        <div>
+                            <label for="product-unit-price" class="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-200">Precio Unitario *</label>
+                            <input id="product-unit-price" type="number" required step="0.01" class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-[#121212] text-gray-900 dark:text-white px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#F53003]" />
+                        </div>
+                    </div>
+                    <button type="submit" class="px-4 py-2 bg-[#F53003] text-white rounded-md text-sm font-semibold hover:bg-[#d12a03] transition">Agregar Producto</button>
+                </form>
+            </div>
+
+            <div>
+                <h3 class="text-lg font-semibold mb-4 text-[#1b1b18] dark:text-white">Productos Cotizados</h3>
+                ${tender.products?.length === 0 ? `
+                    <p class="text-center text-gray-600 dark:text-gray-400">No hay productos en esta licitación.</p>
+                ` : `
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead class="bg-gray-100 dark:bg-[#141414] border-b border-gray-200 dark:border-gray-700">
+                                <tr>
+                                    <th class="px-4 py-3 text-left font-semibold text-[#1b1b18] dark:text-white">SKU</th>
+                                    <th class="px-4 py-3 text-left font-semibold text-[#1b1b18] dark:text-white">Producto</th>
+                                    <th class="px-4 py-3 text-left font-semibold text-[#1b1b18] dark:text-white">Cantidad</th>
+                                    <th class="px-4 py-3 text-left font-semibold text-[#1b1b18] dark:text-white">Precio Unit.</th>
+                                    <th class="px-4 py-3 text-left font-semibold text-[#1b1b18] dark:text-white">Subtotal</th>
+                                    <th class="px-4 py-3 text-center font-semibold text-[#1b1b18] dark:text-white">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${tender.products.map(product => `
+                                    <tr class="border-b border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-[#141414]">
+                                        <td class="px-4 py-3 text-gray-900 dark:text-gray-100">${this.escapeHtml(product.sku)}</td>
+                                        <td class="px-4 py-3 text-gray-900 dark:text-gray-100">${this.escapeHtml(product.name)}</td>
+                                        <td class="px-4 py-3 text-gray-900 dark:text-gray-100">${product.pivot?.quantity || 0}</td>
+                                        <td class="px-4 py-3 text-gray-900 dark:text-gray-100">$${parseFloat(product.pivot?.unit_price || 0).toFixed(2)}</td>
+                                        <td class="px-4 py-3 font-semibold text-[#1b1b18] dark:text-white">$${(parseFloat(product.pivot?.quantity || 0) * parseFloat(product.pivot?.unit_price || 0)).toFixed(2)}</td>
+                                        <td class="px-4 py-3 text-center">
+                                            <button data-product-id="${product.id}" class="btn-remove-product px-2 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700 transition">Remover</button>
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `}
+            </div>
+        `;
+    }
+
+    bindEvents() {
+        const viewDetailsButtons = this.root.querySelectorAll('.btn-view-details');
+        const backButton = this.root.querySelector('#btn-back-to-list');
+        const addProductForm = this.root.querySelector('#add-product-form');
+        const removeProductButtons = this.root.querySelectorAll('.btn-remove-product');
+
+        viewDetailsButtons.forEach(btn => {
+            btn.addEventListener('click', (e) => this.handleViewDetails(e));
+        });
+
+        if (backButton) {
+            backButton.addEventListener('click', () => this.handleBackToList());
+        }
+
+        if (addProductForm) {
+            addProductForm.addEventListener('submit', (e) => this.handleAddProduct(e));
+        }
+
+        removeProductButtons.forEach(btn => {
+            btn.addEventListener('click', (e) => this.handleRemoveProduct(e));
+        });
+    }
+
+    async handleViewDetails(event) {
+        event.preventDefault();
+        const tenderId = parseInt(event.target.dataset.tenderId);
+
+        try {
+            this.selectedTender = await this.api.getTender(tenderId);
+            this.products = await this.api.getProducts();
+            this.showDetailView = true;
+            await this.render();
+        } catch (error) {
+            console.error('Error al cargar detalles:', error);
+            alert(error.message || 'Error al cargar los detalles de la licitación.');
+        }
+    }
+
+    handleBackToList() {
+        this.selectedTender = null;
+        this.showDetailView = false;
+        this.addProductError = '';
+        this.render();
+    }
+
+    async handleAddProduct(event) {
+        event.preventDefault();
+
+        const productId = parseInt(this.root.querySelector('#select-product').value);
+        const quantity = parseInt(this.root.querySelector('#product-quantity').value);
+        const unitPrice = parseFloat(this.root.querySelector('#product-unit-price').value);
+
+        if (!productId || !quantity || !unitPrice) {
+            this.addProductError = 'Todos los campos son obligatorios.';
+            this.renderDetailView();
+            return;
+        }
+
+        try {
+            this.addProductError = '';
+            this.selectedTender = await this.api.attachProductToTender(this.selectedTender.id, {
+                product_id: productId,
+                quantity,
+                unit_price: unitPrice,
+            });
+
+            // Limpiar el formulario
+            this.root.querySelector('#select-product').value = '';
+            this.root.querySelector('#product-quantity').value = '1';
+            this.root.querySelector('#product-unit-price').value = '';
+
+            // Actualizar la vista con los nuevos datos
+            const detailView = this.root.querySelector('#tender-detail-view');
+            detailView.innerHTML = this.renderDetailView();
+            this.bindDetailViewEvents();
+        } catch (error) {
+            this.addProductError = error.message || 'Error al agregar el producto.';
+            const detailView = this.root.querySelector('#tender-detail-view');
+            detailView.innerHTML = this.renderDetailView();
+            this.bindDetailViewEvents();
+        }
+    }
+
+    async handleRemoveProduct(event) {
+        event.preventDefault();
+        const productId = parseInt(event.target.dataset.productId);
+
+        if (!confirm('¿Estás seguro de que deseas remover este producto?')) {
+            return;
+        }
+
+        try {
+            this.selectedTender = await this.api.detachProductFromTender(this.selectedTender.id, productId);
+
+            // Actualizar la vista
+            const detailView = this.root.querySelector('#tender-detail-view');
+            detailView.innerHTML = this.renderDetailView();
+            this.bindDetailViewEvents();
+        } catch (error) {
+            console.error('Error al remover producto:', error);
+            alert(error.message || 'Error al remover el producto.');
+        }
+    }
+
+    bindDetailViewEvents() {
+        const backButton = this.root.querySelector('#btn-back-to-list');
+        const addProductForm = this.root.querySelector('#add-product-form');
+        const removeProductButtons = this.root.querySelectorAll('.btn-remove-product');
+
+        if (backButton) {
+            backButton.addEventListener('click', () => this.handleBackToList());
+        }
+
+        if (addProductForm) {
+            addProductForm.addEventListener('submit', (e) => this.handleAddProduct(e));
+        }
+
+        removeProductButtons.forEach(btn => {
+            btn.addEventListener('click', (e) => this.handleRemoveProduct(e));
+        });
+    }
+
+    escapeHtml(text) {
+        const map = {
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#039;',
+        };
+        return text.replace(/[&<>"']/g, (m) => map[m]);
+    }
+}
+
+class App {
+    constructor() {
+        this.state = new SessionState();
+        this.api = new ApiService(this.state);
+        this.menuRoot = document.getElementById('app-header');
+        this.contentRoot = document.getElementById('app-content');
+        this.currentView = 'dashboard';
+        this.loginView = null;
+        this.menuView = null;
+        this.contentView = null;
+        this.productView = null;
+        this.tenderView = null;
+    }
+
+    init() {
+        if (!this.menuRoot || !this.contentRoot) {
+            return;
+        }
+
+        this.loginView = new LoginView(this.contentRoot, this.state, this.handleLogin.bind(this));
+        this.menuView = new MenuView(this.menuRoot, this.state, this.handleNavigate.bind(this), this.handleLogout.bind(this));
+        this.contentView = new ContentView(this.contentRoot, this.state);
+        this.productView = new ProductView(this.contentRoot, this.state, this.api, this.handleNavigate.bind(this));
+        this.tenderView = new TenderView(this.contentRoot, this.state, this.api, this.handleNavigate.bind(this));
+
+        this.state.subscribe(() => this.render());
+        this.render();
+    }
+
+    render() {
+        this.menuView.render();
+
+        if (!this.state.isAuthenticated) {
+            this.loginView.render();
+            return;
+        }
+
+        if (this.currentView === 'tenders') {
+            this.tenderView.render();
+        } else if (this.currentView === 'products') {
+            this.productView.render();
+        } else {
+            this.contentView.render(this.currentView);
+        }
+    }
+
+    async handleLogin({ email, password }) {
+        try {
+            const data = await this.api.login(email, password);
+            const user = {
+                name: data.name || '',
+                role: data.role || 'user',
+            };
+
+            this.state.setSession(data.token, user, user.role);
+            this.currentView = 'dashboard';
+        } catch (error) {
+            this.loginView.setError(error.message || 'No se pudo iniciar sesi�n.');
+        }
+    }
+
+    handleNavigate(view) {
+        this.currentView = view;
+        this.render();
+    }
+
+    handleLogout() {
+        this.state.clearSession();
+        this.currentView = 'dashboard';
+    }
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+    new App().init();
+});
