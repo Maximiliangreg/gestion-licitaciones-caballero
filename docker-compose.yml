@@ -12,10 +12,13 @@ services:
             WWWUSER: '${WWWUSER:-1000}'
             LARAVEL_SAIL: 1
         working_dir: /var/www/html
+        volumes:
+            - '.:/var/www/html'
         networks:
             - sail
         depends_on:
             - pgsql
+
     pgsql:
         image: 'postgres:17-alpine'
         ports:

@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 
-#[Fillable(['name', 'email', 'phone', 'created_by', 'updated_by'])]
+#[Fillable(['name', 'email', 'phone', 'address', 'created_by', 'updated_by'])]
 class Client extends Model
 {
     use HasFactory;

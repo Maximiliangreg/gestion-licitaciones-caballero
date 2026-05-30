@@ -1,0 +1,6 @@
+- [ ] Actualizar `docker-compose.yml` para montar el repo en `laravel.test` (volumen bind `.:/var/www/html`).
+- [ ] Reiniciar contenedores (`docker compose up -d --force-recreate laravel.test`).
+- [ ] Verificar dentro del contenedor que `routes/web.php` ahora contiene la ruta `/` hacia `SpaController@index`.
+- [ ] Verificar dentro del contenedor que la vista `resources/views/layouts/app.blade.php` renderiza con `tenders` y `products`.
+- [ ] Finalizar entrega: confirmar/reescribir (si hace falta) `routes/web.php`, `resources/views/layouts/app.blade.php`, componentes Blade, `resources/js/app.js` y `database/seeders/DatabaseSeeder.php` según la especificación.
+- [ ] Ejecutar comandos de prueba: `php artisan route:list`, `php artisan db:seed` (si aplica) y revisar navegación SPA (clicks sidebar).
